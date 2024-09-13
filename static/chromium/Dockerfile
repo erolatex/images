@@ -1,6 +1,6 @@
 ARG BASE_IMAGE_TAG=1.0
 
-FROM base_image:$BASE_IMAGE_TAG
+FROM erolatex/selenoid_base_image:$BASE_IMAGE_TAG
 
 ENV DEBIAN_FRONTEND=noninteractive
 
