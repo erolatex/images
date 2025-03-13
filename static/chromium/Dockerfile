@@ -10,7 +10,7 @@ RUN apt-get update && \
     curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x5301FA4FD93244FBC6F6149982BB6851C64F6880" | gpg --dearmor > /usr/share/keyrings/xtradeb_apps.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/xtradeb_apps.gpg] https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/xtradeb_apps.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends chromium-browser chromium-driver chromium-common && \
+    apt-get install -y --no-install-recommends chromium chromium-driver chromium-common && \
     apt-get purge -y gnupg dirmngr curl && \
     apt-get autoremove -y && \
     apt-get clean && \
