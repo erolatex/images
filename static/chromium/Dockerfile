@@ -27,32 +27,35 @@ RUN set -eux; \
   ln -sf /usr/bin/google-chrome /usr/bin/chromium-browser || true; \
   google-chrome --version
 
-# ---- Install matching ChromeDriver ----
+# ---- Install matching ChromeDriver (arch-aware) ----
 RUN set -eux; \
   CHROME_VER="$(/usr/bin/google-chrome --version | awk '{print $3}')"; \
   MAJOR="${CHROME_VER%%.*}"; \
   EXACT_JSON="https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"; \
-  DRIVER_URL="$( \
-    curl -fsSL "$EXACT_JSON" \
-    | jq -r --arg major "$MAJOR" '
-        [ .versions[]
-          | select(.version | startswith($major + "."))
-          | .downloads.chromedriver[]
-          | select(.platform=="linux64")
-        ][-1].url // empty
-      ' \
-  )"; \
+  ARCH="$(dpkg --print-architecture)"; \
+  # Map dpkg arch -> chrome-for-testing platform and zip dir names
+  case "$ARCH" in \
+    amd64)  CTF_PLATFORM="linux64";     ZIP_DIR="chromedriver-linux64" ;; \
+    arm64)  CTF_PLATFORM="linux-arm64"; ZIP_DIR="chromedriver-linux-arm64" ;; \
+    armhf|armel) CTF_PLATFORM="linux-arm32"; ZIP_DIR="chromedriver-linux-arm32" ;; \
+    *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+  esac; \
+  # Try to get the latest driver within the same major version
+  DRIVER_URL="$(curl -fsSL "$EXACT_JSON" \
+    | jq -r --arg major "$MAJOR" --arg plat "$CTF_PLATFORM" \
+      '[.versions[] | select(.version | startswith($major + ".")) \
+        | .downloads.chromedriver[] | select(.platform==$plat)][-1].url // empty')" ; \
+  # Fallback to LKGV Stable of the same platform
   if [ -z "$DRIVER_URL" ]; then \
-    DRIVER_URL="$( \
-      curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json \
-      | jq -r '.channels.Stable.version as $v | "https://storage.googleapis.com/chrome-for-testing-public/\($v)/linux64/chromedriver-linux64.zip"' \
-    )"; \
+    DRIVER_URL="$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json \
+      | jq -r --arg plat "$CTF_PLATFORM" \
+        '.channels.Stable.version as $v | "https://storage.googleapis.com/chrome-for-testing-public/\($v)/\($plat)/chromedriver-\($plat).zip"')" ; \
   fi; \
   echo "Downloading: $DRIVER_URL"; \
   curl -fsSLo /tmp/chromedriver.zip "$DRIVER_URL"; \
   unzip -q /tmp/chromedriver.zip -d /tmp/; \
-  install -m 0755 /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver; \
-  rm -rf /tmp/chromedriver.zip /tmp/chromedriver-linux64; \
+  install -m 0755 "/tmp/${ZIP_DIR}/chromedriver" /usr/local/bin/chromedriver; \
+  rm -rf /tmp/chromedriver.zip "/tmp/${ZIP_DIR}"; \
   chromedriver --version
 
 # ---- Cleanup ----
