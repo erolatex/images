@@ -14,49 +14,40 @@ RUN set -eux; \
     unzip xz-utils jq; \
   update-ca-certificates
 
-# ---- Install Google Chrome Stable ----
+# ---- Install Chrome for Testing Stable + matching ChromeDriver (arch-aware) ----
+# Uses Chrome for Testing for both amd64 and arm64 to avoid missing packages on arm64.
 RUN set -eux; \
-  install -d -m 0755 /etc/apt/keyrings; \
-  curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
-    | gpg --dearmor -o /etc/apt/keyrings/google-linux.gpg; \
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/google-linux.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
-    > /etc/apt/sources.list.d/google-chrome.list; \
-  apt-get update -yq; \
-  apt-get install -yq --no-install-recommends google-chrome-stable; \
-  ln -sf /usr/bin/google-chrome /usr/bin/chrome || true; \
-  ln -sf /usr/bin/google-chrome /usr/bin/chromium-browser || true; \
-  google-chrome --version
-
-# ---- Install matching ChromeDriver (arch-aware) ----
-RUN set -eux; \
-  CHROME_VER="$(/usr/bin/google-chrome --version | awk '{print $3}')"; \
-  MAJOR="${CHROME_VER%%.*}"; \
-  EXACT_JSON="https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"; \
   ARCH="$(dpkg --print-architecture)"; \
-  # Map dpkg arch -> chrome-for-testing platform and zip dir names
   case "$ARCH" in \
-    amd64)  CTF_PLATFORM="linux64";     ZIP_DIR="chromedriver-linux64" ;; \
-    arm64)  CTF_PLATFORM="linux-arm64"; ZIP_DIR="chromedriver-linux-arm64" ;; \
-    armhf|armel) CTF_PLATFORM="linux-arm32"; ZIP_DIR="chromedriver-linux-arm32" ;; \
-    *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+    amd64)  CFT_PLATFORM="linux64";      CHROME_DIR="chrome-linux64";      DRIVER_DIR="chromedriver-linux64" ;; \
+    arm64)  CFT_PLATFORM="linux-arm64";  CHROME_DIR="chrome-linux-arm64";  DRIVER_DIR="chromedriver-linux-arm64" ;; \
+    armhf|armel) CFT_PLATFORM="linux-arm32"; CHROME_DIR="chrome-linux-arm32"; DRIVER_DIR="chromedriver-linux-arm32" ;; \
+    *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;; \
   esac; \
-  # Try to get the latest driver within the same major version
-  DRIVER_URL="$(curl -fsSL "$EXACT_JSON" \
-    | jq -r --arg major "$MAJOR" --arg plat "$CTF_PLATFORM" \
-      '[.versions[] | select(.version | startswith($major + ".")) \
-        | .downloads.chromedriver[] | select(.platform==$plat)][-1].url // empty')" ; \
-  # Fallback to LKGV Stable of the same platform
-  if [ -z "$DRIVER_URL" ]; then \
-    DRIVER_URL="$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json \
-      | jq -r --arg plat "$CTF_PLATFORM" \
-        '.channels.Stable.version as $v | "https://storage.googleapis.com/chrome-for-testing-public/\($v)/\($plat)/chromedriver-\($plat).zip"')" ; \
-  fi; \
+  # Get stable version once and use it for both chrome and chromedriver
+  STABLE_VER="$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json \
+    | jq -r '.channels.Stable.version')" ; \
+  CHROME_URL="https://storage.googleapis.com/chrome-for-testing-public/${STABLE_VER}/${CFT_PLATFORM}/chrome-${CFT_PLATFORM}.zip"; \
+  DRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/${STABLE_VER}/${CFT_PLATFORM}/chromedriver-${CFT_PLATFORM}.zip"; \
+  echo "Chrome for Testing: ${STABLE_VER} (${CFT_PLATFORM})"; \
+  echo "Downloading: $CHROME_URL"; \
+  curl -fsSLo /tmp/chrome.zip "$CHROME_URL"; \
   echo "Downloading: $DRIVER_URL"; \
   curl -fsSLo /tmp/chromedriver.zip "$DRIVER_URL"; \
+  # Install Chrome
+  rm -rf /opt/chrome && mkdir -p /opt/chrome; \
+  unzip -q /tmp/chrome.zip -d /opt/; \
+  mv "/opt/${CHROME_DIR}"/* /opt/chrome/; \
+  ln -sf /opt/chrome/chrome /usr/bin/google-chrome; \
+  ln -sf /opt/chrome/chrome /usr/bin/chrome; \
+  ln -sf /opt/chrome/chrome /usr/bin/chromium-browser; \
+  /usr/bin/google-chrome --version; \
+  # Install Chromedriver
   unzip -q /tmp/chromedriver.zip -d /tmp/; \
-  install -m 0755 "/tmp/${ZIP_DIR}/chromedriver" /usr/local/bin/chromedriver; \
-  rm -rf /tmp/chromedriver.zip "/tmp/${ZIP_DIR}"; \
-  chromedriver --version
+  install -m 0755 "/tmp/${DRIVER_DIR}/chromedriver" /usr/local/bin/chromedriver; \
+  chromedriver --version; \
+  # Cleanup zips
+  rm -rf /tmp/chrome.zip /tmp/chromedriver.zip "/tmp/${DRIVER_DIR}"
 
 # ---- Cleanup ----
 RUN set -eux; \
